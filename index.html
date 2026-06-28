@@ -243,6 +243,29 @@
 
   .empty{text-align:center;color:#6a5538;padding:30px 16px;font-style:italic}
 
+  /* Premium Account */
+  .pa-status{display:inline-flex;align-items:center;gap:8px;padding:7px 15px;border-radius:8px;
+    font-family:"Cinzel",serif;font-weight:600;font-size:.92rem}
+  .pa-ok{background:#3a5a28;color:#d4f0bb}
+  .pa-late{background:#7a2b1e;color:#ffd9c9}
+  .pa-done{background:linear-gradient(180deg,var(--gold-bright),var(--gold));color:#3a2a0a}
+  .pa-soon{background:#52473a;color:#e2d6bb}
+  .pa-bar{position:relative;height:26px;background:rgba(58,42,10,.12);border:1px solid #C9B27E;
+    border-radius:8px;overflow:hidden;margin:18px 0 6px}
+  .pa-fill{height:100%;background:linear-gradient(90deg,var(--gold-deep),var(--gold-bright));
+    border-radius:8px 0 0 8px;transition:width .5s ease}
+  .pa-marker{position:absolute;top:-5px;bottom:-5px;width:2px;background:var(--red)}
+  .pa-marker::after{content:"hoje";position:absolute;top:-15px;left:50%;transform:translateX(-50%);
+    font-size:.58rem;color:var(--red);font-family:"JetBrains Mono",monospace;white-space:nowrap}
+  .pa-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:12px;margin-top:16px}
+  .pa-metric{background:rgba(58,42,10,.06);border:1px solid #C9B27E;border-radius:9px;padding:12px 14px}
+  .pa-metric .v{font-family:"JetBrains Mono",monospace;font-weight:700;font-size:1.15rem;color:#3a2a0a}
+  .pa-metric .l{font-size:.66rem;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-soft);margin-top:5px}
+  .link-btn{display:inline-flex;align-items:center;gap:6px;color:var(--gold-deep);cursor:pointer;
+    font-family:"Cinzel",serif;font-weight:600;font-size:.82rem;background:none;border:none;padding:0;
+    border-bottom:1px solid transparent}
+  .link-btn:hover{border-bottom-color:var(--gold-deep)}
+
   .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px}
   .seg{display:flex;gap:4px;background:rgba(58,42,10,.08);padding:4px;border-radius:8px}
   .seg button{padding:6px 12px;border-radius:6px;font-size:.78rem;font-family:"Cinzel",serif;color:var(--ink-soft)}
@@ -307,6 +330,7 @@
       <a href="#overview" data-pill="overview">Visão geral</a>
       <a href="#characters" data-pill="characters">Personagens</a>
       <a href="#gold" data-pill="gold">Gold</a>
+      <a href="#premium" data-pill="premium">Premium</a>
       <a href="#objectives" data-pill="objectives">Objetivos</a>
     </nav>
   </header>
@@ -331,7 +355,7 @@ const store = {
     try { localStorage.setItem(key, JSON.stringify(val)); } catch(e){}
   }
 };
-const K = { chars:'tibia.chars', gold:'tibia.gold', obj:'tibia.obj' };
+const K = { chars:'tibia.chars', gold:'tibia.gold', obj:'tibia.obj', pa:'tibia.pa' };
 const uid = () => Math.random().toString(36).slice(2,9);
 const nf = n => Number(n||0).toLocaleString('pt-BR');
 
@@ -352,9 +376,9 @@ const charName = id => (getChars().find(c=>c.id===id)||{}).name || '';
 /* ============================================================
    Roteamento por hash
 ============================================================ */
-const ROUTES = ['overview','characters','gold','objectives'];
+const ROUTES = ['overview','characters','gold','premium','objectives'];
 const TITLES = { overview:['⚑','Visão geral'], characters:['⚔','Personagens'],
-                 gold:['💰','Tesouro & Gold'], objectives:['🐉','Objetivos'] };
+                 gold:['💰','Tesouro & Gold'], premium:['👑','Premium Account'], objectives:['🐉','Objetivos'] };
 
 function go(dest){
   if(dest==='map'){ location.hash=''; return; }
@@ -397,6 +421,7 @@ RENDER.overview = function(){
   const top = chars.slice().sort((a,b)=>(b.level||0)-(a.level||0))[0];
   const done = obj.filter(o=>o.status==='done').length;
   const doing = obj.filter(o=>o.status==='doing').length;
+  const pa = paStats();
   page().innerHTML = `
     <div class="page-head">
       <div class="kicker">Castelo Real</div>
@@ -412,6 +437,8 @@ RENDER.overview = function(){
         <div class="sub">${done} concluídos · ${doing} em andamento</div></div>
       <div class="stat"><div class="n">${obj.length?Math.round(done/obj.length*100):0}%</div><div class="t">Progresso</div>
         <div class="sub">das metas concluídas</div></div>
+      ${pa.c?`<div class="stat"><div class="n mono">${Math.round(pa.pctSaved)}%</div><div class="t">Premium Account</div>
+        <div class="sub">${fmtGold(pa.saved)} / ${fmtGold(pa.goal)} · ${({ok:'em dia',late:'atrasado',done:'concluído',soon:'a começar'})[pa.status]}</div></div>`:''}
     </div>
     <div class="stack">
       ${chars.length===0 && obj.length===0 ? `<div class="card card-pad empty">
@@ -499,6 +526,7 @@ RENDER.gold = function(){
       <div class="kicker">Câmara do Tesouro</div>
       <h1>Tesouro & Gold</h1>
       <p>Registre o que entra e sai. O saldo converte automaticamente em platinum e crystal.</p>
+      <button class="link-btn" style="margin-top:8px" onclick="go('premium')">👑 Ir para a meta da Premium Account →</button>
     </div>
     <div class="card card-pad" style="margin-bottom:18px">
       <div class="vault">
@@ -626,6 +654,169 @@ function startEditObj(id){ editingObj=getObj().find(o=>o.id===id); RENDER.object
 function cycleObj(id){ const l=getObj(); const o=l.find(x=>x.id===id);
   const nx={todo:'doing',doing:'done',done:'todo'}; o.status=nx[o.status]; store.write(K.obj,l); RENDER.objectives(); }
 function delObj(id){ if(!confirm('Excluir este objetivo?'))return; store.write(K.obj,getObj().filter(o=>o.id!==id)); RENDER.objectives(); }
+
+/* ============================================================
+   PREMIUM ACCOUNT — meta mensal de gold
+============================================================ */
+const PA_DEF = { config:{tc:250,perTc:40000,days:30}, cycle:null, history:[] };
+function getPA(){
+  const p = store.read(K.pa, JSON.parse(JSON.stringify(PA_DEF)));
+  if(!p.config) p.config={tc:250,perTc:40000,days:30};
+  if(!('cycle' in p)) p.cycle=null;
+  if(!p.history) p.history=[];
+  return p;
+}
+function savePA(p){ store.write(K.pa,p); }
+function todayISO(){ const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); }
+function paGoal(cfg){ return (Number(cfg.tc)||0)*(Number(cfg.perTc)||0); }
+function fmtGold(n){
+  n=Number(n||0); const s=n<0?'-':''; n=Math.abs(n);
+  const t=x=>x.toLocaleString('pt-BR',{maximumFractionDigits:2});
+  if(n>=1000000) return s+t(n/1000000)+'kk';
+  if(n>=1000) return s+t(n/1000)+'k';
+  return s+t(n);
+}
+function paStats(){
+  const p=getPA(), cfg=p.config, c=p.cycle;
+  const goal=paGoal(cfg), days=Math.max(1,Number(cfg.days)||30), daily=goal/days;
+  if(!c) return { p,cfg,c:null,goal,days,daily,saved:0,pctSaved:0,status:'soon' };
+  const saved=(c.entries||[]).reduce((s,e)=>s+Number(e.amount||0),0);
+  const today=new Date(); today.setHours(0,0,0,0);
+  const start=new Date(c.start+'T00:00:00'); start.setHours(0,0,0,0);
+  const diff=Math.floor((today-start)/86400000);
+  const dayNum=diff+1;                 // dia do início = Dia 1
+  const started=today>=start;
+  const expected=Math.min(goal, daily*Math.max(0,Math.min(dayNum,days)));
+  const remaining=Math.max(0,goal-saved);
+  const daysLeft=Math.max(0, days-dayNum+1);
+  const neededPerDay= daysLeft>0 ? remaining/daysLeft : remaining;
+  const behind=Math.max(0,expected-saved);
+  let status;
+  if(!started) status='soon';
+  else if(saved>=goal) status='done';
+  else if(saved>=expected-1) status='ok';
+  else status='late';
+  return { p,cfg,c,goal,days,daily,saved,dayNum,started,expected,remaining,daysLeft,neededPerDay,behind,status,
+           pctSaved:Math.min(100, goal?saved/goal*100:0), pctExpected:Math.min(100, goal?expected/goal*100:0) };
+}
+
+RENDER.premium = function(){
+  const s=paStats(), cfg=s.cfg;
+  if(!s.c){
+    page().innerHTML = `
+      <div class="page-head"><div class="kicker">Câmara do Tesouro</div>
+        <h1>👑 Premium Account</h1>
+        <p>Defina a meta mensal e registre quanto guarda por dia — eu te aviso se está em dia ou atrasado.</p></div>
+      <div class="card card-pad">
+        <h3 style="font-family:Cinzel;color:#3a2a0a;margin-bottom:12px">Começar o ciclo do mês</h3>
+        <div class="form-grid">
+          <label class="fld">Tibia Coins<input id="pa-tc" type="number" min="0" value="${cfg.tc}"></label>
+          <label class="fld">Gold por TC<input id="pa-pertc" type="number" min="0" value="${cfg.perTc}"></label>
+          <label class="fld">Dias do ciclo<input id="pa-days" type="number" min="1" value="${cfg.days}"></label>
+          <label class="fld">Data de início<input id="pa-start" type="date" value="${todayISO()}"></label>
+        </div>
+        <p style="color:var(--ink-soft);font-size:.85rem;margin-top:10px">Meta: <b>${fmtGold(paGoal(cfg))}</b> · alvo diário: <b>${fmtGold(paGoal(cfg)/Math.max(1,cfg.days))}</b></p>
+        <div class="row-actions" style="margin-top:14px"><button class="btn btn-gold" onclick="paStart()">Começar ciclo</button></div>
+      </div>`;
+    return;
+  }
+  const stLbl={ok:['pa-ok','✅ Em dia'],late:['pa-late','⚠ Atrasado'],done:['pa-done','🏆 Meta concluída!'],soon:['pa-soon','🕓 Ainda não começou']}[s.status];
+  const entries=(s.c.entries||[]).slice().sort((a,b)=> a.date<b.date?1:-1);
+  page().innerHTML = `
+    <div class="page-head"><div class="kicker">Câmara do Tesouro</div>
+      <h1>👑 Premium Account</h1>
+      <p>Início em ${new Date(s.c.start+'T00:00:00').toLocaleDateString('pt-BR')} · Dia ${Math.min(Math.max(s.dayNum,1),s.days)} de ${s.days}</p></div>
+
+    <div class="card card-pad" style="margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+        <span class="pa-status ${stLbl[0]}">${stLbl[1]}</span>
+        <span class="mono" style="color:#3a2a0a;font-weight:700;font-size:1.15rem">${fmtGold(s.saved)} / ${fmtGold(s.goal)}</span>
+      </div>
+      <div class="pa-bar">
+        <div class="pa-fill" style="width:${s.pctSaved}%"></div>
+        ${s.started && s.status!=='done'?`<div class="pa-marker" style="left:${s.pctExpected}%"></div>`:''}
+      </div>
+      <div style="font-size:.8rem;color:var(--ink-soft)">${Math.round(s.pctSaved)}% guardado${s.started&&s.status!=='done'?` · meta de hoje: ${fmtGold(s.expected)}`:''}</div>
+
+      <div class="pa-metrics">
+        <div class="pa-metric"><div class="v">${fmtGold(s.remaining)}</div><div class="l">Falta guardar</div></div>
+        <div class="pa-metric"><div class="v">${s.daysLeft}</div><div class="l">Dias restantes</div></div>
+        <div class="pa-metric"><div class="v">${fmtGold(s.neededPerDay)}</div><div class="l">Ritmo p/ fechar</div></div>
+        ${s.status==='late'?`<div class="pa-metric"><div class="v" style="color:var(--red)">${fmtGold(s.behind)}</div><div class="l">Atraso atual</div></div>`:''}
+      </div>
+      ${s.status==='late'?`<p style="margin-top:14px;color:var(--red);font-size:.9rem">Você está <b>${fmtGold(s.behind)}</b> atrás do ritmo. Guarde <b>${fmtGold(s.neededPerDay)}/dia</b> nos próximos ${s.daysLeft} dias pra fechar no prazo.</p>`:''}
+      ${s.status==='ok'?`<p style="margin-top:14px;color:var(--green-deep);font-size:.9rem">Mandando bem! Mantenha ~${fmtGold(s.daily)}/dia e você fecha os ${fmtGold(s.goal)} no prazo.</p>`:''}
+      ${s.status==='done'?`<p style="margin-top:14px;color:var(--gold-deep);font-size:.9rem">🎉 Você já juntou o suficiente pra Premium Account deste ciclo!</p>`:''}
+    </div>
+
+    <div class="card card-pad" style="margin-bottom:18px">
+      <h3 style="font-family:Cinzel;color:#3a2a0a;margin-bottom:10px">Registrar gold do dia</h3>
+      <div class="form-grid">
+        <label class="fld">Data<input id="pa-edate" type="date" value="${todayISO()}"></label>
+        <label class="fld">Gold guardado<input id="pa-eamt" type="number" min="0" placeholder="ex.: 350000"></label>
+      </div>
+      <div class="row-actions" style="margin-top:14px"><button class="btn btn-gold" onclick="paAddEntry()">Registrar</button></div>
+    </div>
+
+    <div class="stack">
+      ${entries.length===0?`<div class="card card-pad empty">Nenhum registro ainda. Anote o gold que guardar hoje!</div>`:''}
+      ${entries.map(e=>`<div class="item" style="border-left-color:var(--gold)">
+        <div class="grow"><h3 class="mono">${fmtGold(e.amount)} <span style="font-size:.7rem;color:var(--ink-soft)">(${nf(e.amount)} gp)</span></h3>
+          <div class="meta">${new Date(e.date+'T00:00:00').toLocaleDateString('pt-BR')}</div></div>
+        <button class="btn btn-danger btn-sm" onclick="paDelEntry('${e.id}')">Remover</button>
+      </div>`).join('')}
+    </div>
+
+    <div class="card card-pad" style="margin-top:18px">
+      <h3 style="font-family:Cinzel;color:#3a2a0a;margin-bottom:10px">Configuração da meta</h3>
+      <div class="form-grid">
+        <label class="fld">Tibia Coins<input id="pa-tc" type="number" min="0" value="${cfg.tc}"></label>
+        <label class="fld">Gold por TC<input id="pa-pertc" type="number" min="0" value="${cfg.perTc}"></label>
+        <label class="fld">Dias do ciclo<input id="pa-days" type="number" min="1" value="${cfg.days}"></label>
+      </div>
+      <p style="color:var(--ink-soft);font-size:.85rem;margin-top:10px">Meta atual: <b>${fmtGold(s.goal)}</b> · alvo diário: <b>${fmtGold(s.daily)}</b></p>
+      <div class="row-actions" style="margin-top:14px">
+        <button class="btn btn-wood" onclick="paSaveConfig()">Salvar configuração</button>
+        <button class="btn btn-ghost" onclick="paNewCycle()">Iniciar novo mês</button>
+      </div>
+    </div>
+    ${(s.p.history&&s.p.history.length)?`<div class="card card-pad" style="margin-top:18px">
+      <h3 style="font-family:Cinzel;color:#3a2a0a;margin-bottom:10px">Ciclos anteriores</h3>
+      ${s.p.history.slice().reverse().map(h=>`<div class="item"><div class="grow">
+        <h3 class="mono">${fmtGold(h.saved)} / ${fmtGold(h.goal)}</h3>
+        <div class="meta">${new Date(h.start+'T00:00:00').toLocaleDateString('pt-BR')} · ${h.met?'✅ meta batida':'não concluído'}</div>
+      </div></div>`).join('')}
+    </div>`:''}`;
+};
+function paStart(){
+  const p=getPA();
+  p.config={ tc:Math.max(0,parseInt(document.getElementById('pa-tc').value)||0),
+    perTc:Math.max(0,parseInt(document.getElementById('pa-pertc').value)||0),
+    days:Math.max(1,parseInt(document.getElementById('pa-days').value)||30) };
+  p.cycle={ start:document.getElementById('pa-start').value||todayISO(), entries:[] };
+  savePA(p); RENDER.premium();
+}
+function paAddEntry(){
+  const amt=parseInt(document.getElementById('pa-eamt').value)||0;
+  if(amt<=0){ document.getElementById('pa-eamt').focus(); return; }
+  const date=document.getElementById('pa-edate').value||todayISO();
+  const p=getPA(); p.cycle.entries.push({id:uid(),date,amount:amt}); savePA(p); RENDER.premium();
+}
+function paDelEntry(id){ const p=getPA(); p.cycle.entries=p.cycle.entries.filter(e=>e.id!==id); savePA(p); RENDER.premium(); }
+function paSaveConfig(){
+  const p=getPA();
+  p.config={ tc:Math.max(0,parseInt(document.getElementById('pa-tc').value)||0),
+    perTc:Math.max(0,parseInt(document.getElementById('pa-pertc').value)||0),
+    days:Math.max(1,parseInt(document.getElementById('pa-days').value)||30) };
+  savePA(p); RENDER.premium();
+}
+function paNewCycle(){
+  if(!confirm('Arquivar o ciclo atual e começar um novo mês? O progresso atual vai para o histórico.'))return;
+  const p=getPA(), s=paStats();
+  if(p.cycle){ p.history.push({ start:p.cycle.start, goal:s.goal, saved:s.saved, met:s.saved>=s.goal }); }
+  p.cycle={ start:todayISO(), entries:[] };
+  savePA(p); RENDER.premium();
+}
 
 /* iniciar */
 router();
