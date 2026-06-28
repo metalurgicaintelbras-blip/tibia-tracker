@@ -331,6 +331,7 @@
       <a href="#characters" data-pill="characters">Personagens</a>
       <a href="#gold" data-pill="gold">Gold</a>
       <a href="#premium" data-pill="premium">Premium</a>
+      <a href="#goals" data-pill="goals">Metas</a>
       <a href="#objectives" data-pill="objectives">Objetivos</a>
     </nav>
   </header>
@@ -355,7 +356,7 @@ const store = {
     try { localStorage.setItem(key, JSON.stringify(val)); } catch(e){}
   }
 };
-const K = { chars:'tibia.chars', gold:'tibia.gold', obj:'tibia.obj', pa:'tibia.pa' };
+const K = { chars:'tibia.chars', gold:'tibia.gold', obj:'tibia.obj', pa:'tibia.pa', goals:'tibia.goals' };
 const uid = () => Math.random().toString(36).slice(2,9);
 const nf = n => Number(n||0).toLocaleString('pt-BR');
 
@@ -376,9 +377,9 @@ const charName = id => (getChars().find(c=>c.id===id)||{}).name || '';
 /* ============================================================
    Roteamento por hash
 ============================================================ */
-const ROUTES = ['overview','characters','gold','premium','objectives'];
+const ROUTES = ['overview','characters','gold','premium','goals','objectives'];
 const TITLES = { overview:['⚑','Visão geral'], characters:['⚔','Personagens'],
-                 gold:['💰','Tesouro & Gold'], premium:['👑','Premium Account'], objectives:['🐉','Objetivos'] };
+                 gold:['💰','Tesouro & Gold'], premium:['👑','Premium Account'], goals:['🎯','Metas de Gold'], objectives:['🐉','Objetivos'] };
 
 function go(dest){
   if(dest==='map'){ location.hash=''; return; }
@@ -422,6 +423,9 @@ RENDER.overview = function(){
   const done = obj.filter(o=>o.status==='done').length;
   const doing = obj.filter(o=>o.status==='doing').length;
   const pa = paStats();
+  const goals = getGoals();
+  const goalsActive = goals.filter(g=>goalStats(g).status!=='done' && goalStats(g).status!=='ended');
+  const nearGoal = goalsActive.slice().sort((a,b)=> a.deadline<b.deadline?-1:1)[0];
   page().innerHTML = `
     <div class="page-head">
       <div class="kicker">Castelo Real</div>
@@ -439,6 +443,8 @@ RENDER.overview = function(){
         <div class="sub">das metas concluídas</div></div>
       ${pa.c?`<div class="stat"><div class="n mono">${Math.round(pa.pctSaved)}%</div><div class="t">Premium Account</div>
         <div class="sub">${fmtGold(pa.saved)} / ${fmtGold(pa.goal)} · ${({ok:'em dia',late:'atrasado',done:'concluído',soon:'a começar'})[pa.status]}</div></div>`:''}
+      ${nearGoal?(()=>{const gs=goalStats(nearGoal);return `<div class="stat"><div class="n mono">${Math.round(gs.pctSaved)}%</div><div class="t">${esc(nearGoal.name)}</div>
+        <div class="sub">${fmtGold(gs.saved)} / ${fmtGold(gs.goal)} · ${({ok:'em dia',late:'atrasado',soon:'a começar'})[gs.status]||gs.status}</div></div>`;})():''}
     </div>
     <div class="stack">
       ${chars.length===0 && obj.length===0 ? `<div class="card card-pad empty">
@@ -527,6 +533,7 @@ RENDER.gold = function(){
       <h1>Tesouro & Gold</h1>
       <p>Registre o que entra e sai. O saldo converte automaticamente em platinum e crystal.</p>
       <button class="link-btn" style="margin-top:8px" onclick="go('premium')">👑 Ir para a meta da Premium Account →</button>
+      <button class="link-btn" style="margin-top:8px;margin-left:14px" onclick="go('goals')">🎯 Ir para Metas de Gold →</button>
     </div>
     <div class="card card-pad" style="margin-bottom:18px">
       <div class="vault">
@@ -817,6 +824,128 @@ function paNewCycle(){
   p.cycle={ start:todayISO(), entries:[] };
   savePA(p); RENDER.premium();
 }
+
+/* ============================================================
+   METAS DE GOLD — objetivos pontuais com prazo (ex.: char novo)
+============================================================ */
+function getGoals(){ return store.read(K.goals, []); }
+function saveGoals(g){ store.write(K.goals, g); }
+function goalGoldOf(g){ return (Number(g.tc)||0)*(Number(g.perTc)||0); }
+function goalStats(g){
+  const goal=goalGoldOf(g);
+  const saved=(g.entries||[]).reduce((s,e)=>s+Number(e.amount||0),0);
+  const today=new Date(); today.setHours(0,0,0,0);
+  const start=new Date((g.start||g.deadline)+'T00:00:00'); start.setHours(0,0,0,0);
+  const end=new Date(g.deadline+'T00:00:00'); end.setHours(0,0,0,0);
+  const oneDay=86400000;
+  const totalDays=Math.max(1, Math.round((end-start)/oneDay)+1);
+  const daysElapsed=Math.max(0, Math.floor((today-start)/oneDay)+1);
+  const daysRemaining=Math.max(0, Math.round((end-today)/oneDay)+1);
+  const overallDaily=goal/totalDays;
+  const expected=Math.min(goal, overallDaily*Math.min(daysElapsed,totalDays));
+  const remaining=Math.max(0,goal-saved);
+  const neededPerDay= daysRemaining>0 ? remaining/daysRemaining : remaining;
+  const behind=Math.max(0,expected-saved);
+  const started=today>=start, ended=today>end;
+  let status;
+  if(saved>=goal) status='done';
+  else if(ended) status='ended';
+  else if(!started) status='soon';
+  else if(saved>=expected-1) status='ok';
+  else status='late';
+  return {goal,saved,start,end,totalDays,daysElapsed,daysRemaining,overallDaily,expected,remaining,neededPerDay,behind,started,ended,status,
+    pctSaved:Math.min(100,goal?saved/goal*100:0), pctExpected:Math.min(100,goal?expected/goal*100:0)};
+}
+
+RENDER.goals = function(){
+  const goals=getGoals();
+  const yearEnd=`${new Date().getFullYear()}-12-31`;
+  page().innerHTML = `
+    <div class="page-head"><div class="kicker">Câmara do Tesouro</div>
+      <h1>🎯 Metas de Gold</h1>
+      <p>Objetivos com prazo (ex.: juntar gold pra um char novo). O ritmo necessário recalcula sozinho a cada dia.</p></div>
+
+    <div class="card card-pad" style="margin-bottom:18px">
+      <h3 style="font-family:Cinzel;color:#3a2a0a;margin-bottom:12px">Nova meta</h3>
+      <div class="form-grid">
+        <label class="fld" style="grid-column:1/-1">Nome<input id="ng-name" placeholder="Ex.: Char novo"></label>
+        <label class="fld">Tibia Coins<input id="ng-tc" type="number" min="0" value="1000"></label>
+        <label class="fld">Gold por TC<input id="ng-pertc" type="number" min="0" value="40000"></label>
+        <label class="fld">Prazo final<input id="ng-deadline" type="date" value="${yearEnd}"></label>
+      </div>
+      <div class="row-actions" style="margin-top:14px"><button class="btn btn-gold" onclick="goalAdd()">Criar meta</button></div>
+    </div>
+
+    ${goals.length===0?`<div class="card card-pad empty">Nenhuma meta ainda. Crie a primeira acima — que tal o char novo? 😎</div>`:''}
+
+    <div class="stack">
+      ${goals.slice().map(g=>{
+        const s=goalStats(g);
+        const stLbl={ok:['pa-ok','✅ Em dia'],late:['pa-late','⚠ Atrasado'],done:['pa-done','🏆 Concluída!'],soon:['pa-soon','🕓 A começar'],ended:['pa-late','⌛ Prazo encerrado']}[s.status];
+        const entries=(g.entries||[]).slice().sort((a,b)=> a.date<b.date?1:-1);
+        return `<div class="card card-pad">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
+            <div><h2 style="font-family:Cinzel;color:#3a2a0a;font-size:1.25rem">${esc(g.name)}</h2>
+              <div style="font-size:.82rem;color:var(--ink-soft);margin-top:2px">Prazo: ${new Date(g.deadline+'T00:00:00').toLocaleDateString('pt-BR')} · ${s.daysRemaining} dia(s) restante(s)</div></div>
+            <span class="pa-status ${stLbl[0]}">${stLbl[1]}</span>
+          </div>
+          <div class="pa-bar">
+            <div class="pa-fill" style="width:${s.pctSaved}%"></div>
+            ${s.started && s.status!=='done' && s.status!=='ended'?`<div class="pa-marker" style="left:${s.pctExpected}%"></div>`:''}
+          </div>
+          <div style="font-size:.8rem;color:var(--ink-soft)">${fmtGold(s.saved)} / ${fmtGold(s.goal)} · ${Math.round(s.pctSaved)}%${s.started&&s.status!=='done'&&s.status!=='ended'?` · meta de hoje: ${fmtGold(s.expected)}`:''}</div>
+
+          <div class="pa-metrics">
+            <div class="pa-metric"><div class="v">${fmtGold(s.remaining)}</div><div class="l">Falta guardar</div></div>
+            <div class="pa-metric"><div class="v">${s.daysRemaining}</div><div class="l">Dias até o prazo</div></div>
+            <div class="pa-metric"><div class="v">${fmtGold(s.neededPerDay)}</div><div class="l">Ritmo p/ fechar</div></div>
+            ${s.status==='late'?`<div class="pa-metric"><div class="v" style="color:var(--red)">${fmtGold(s.behind)}</div><div class="l">Atraso atual</div></div>`:''}
+          </div>
+          ${s.status==='late'?`<p style="margin-top:12px;color:var(--red);font-size:.88rem">Atrasado em <b>${fmtGold(s.behind)}</b>. Pra fechar no prazo, guarde <b>${fmtGold(s.neededPerDay)}/dia</b> nos próximos ${s.daysRemaining} dias.</p>`:''}
+          ${s.status==='ok'?`<p style="margin-top:12px;color:var(--green-deep);font-size:.88rem">No ritmo! Continue guardando ~${fmtGold(s.neededPerDay)}/dia e você fecha no prazo.</p>`:''}
+          ${s.status==='ended'?`<p style="margin-top:12px;color:var(--red);font-size:.88rem">O prazo passou e faltaram ${fmtGold(s.remaining)}. Você pode editar o prazo ou seguir guardando.</p>`:''}
+          ${s.status==='done'?`<p style="margin-top:12px;color:var(--gold-deep);font-size:.88rem">🎉 Meta atingida! Pode comprar.</p>`:''}
+
+          <div style="margin-top:16px;padding-top:16px;border-top:1px dashed #C9B27E">
+            <div class="form-grid">
+              <label class="fld">Data<input id="ge-date-${g.id}" type="date" value="${todayISO()}"></label>
+              <label class="fld">Gold guardado<input id="ge-amt-${g.id}" type="number" min="0" placeholder="ex.: 200000"></label>
+            </div>
+            <div class="row-actions" style="margin-top:12px">
+              <button class="btn btn-gold btn-sm" onclick="goalAddEntry('${g.id}')">Registrar gold</button>
+              <button class="btn btn-danger btn-sm" onclick="goalDelete('${g.id}')">Excluir meta</button>
+            </div>
+            ${entries.length?`<div style="margin-top:14px;display:flex;flex-direction:column;gap:8px">
+              ${entries.map(e=>`<div style="display:flex;justify-content:space-between;align-items:center;font-size:.88rem;color:var(--ink)">
+                <span class="mono"><b>${fmtGold(e.amount)}</b> <span style="color:var(--ink-soft)">· ${new Date(e.date+'T00:00:00').toLocaleDateString('pt-BR')}</span></span>
+                <button class="btn btn-danger btn-sm" onclick="goalDelEntry('${g.id}','${e.id}')">remover</button>
+              </div>`).join('')}
+            </div>`:''}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+};
+function goalAdd(){
+  const name=document.getElementById('ng-name').value.trim();
+  if(!name){ document.getElementById('ng-name').focus(); return; }
+  const g={ id:uid(), name,
+    tc:Math.max(0,parseInt(document.getElementById('ng-tc').value)||0),
+    perTc:Math.max(0,parseInt(document.getElementById('ng-pertc').value)||0),
+    deadline:document.getElementById('ng-deadline').value||`${new Date().getFullYear()}-12-31`,
+    start:todayISO(), entries:[] };
+  const list=getGoals(); list.push(g); saveGoals(list); RENDER.goals();
+}
+function goalDelete(id){ if(!confirm('Excluir esta meta e seus registros?'))return; saveGoals(getGoals().filter(g=>g.id!==id)); RENDER.goals(); }
+function goalAddEntry(id){
+  const amt=parseInt(document.getElementById('ge-amt-'+id).value)||0;
+  if(amt<=0){ document.getElementById('ge-amt-'+id).focus(); return; }
+  const date=document.getElementById('ge-date-'+id).value||todayISO();
+  const list=getGoals(); const g=list.find(x=>x.id===id);
+  if(g){ (g.entries=g.entries||[]).push({id:uid(),date,amount:amt}); saveGoals(list); RENDER.goals(); }
+}
+function goalDelEntry(gid,eid){ const list=getGoals(); const g=list.find(x=>x.id===gid);
+  if(g){ g.entries=(g.entries||[]).filter(e=>e.id!==eid); saveGoals(list); RENDER.goals(); } }
 
 /* iniciar */
 router();
