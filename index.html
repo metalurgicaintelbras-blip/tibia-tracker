@@ -274,6 +274,16 @@
   .hub-hint{text-align:center;font-size:.82rem;color:var(--parch-2);opacity:.7;margin-top:12px}
   .hub-hint b{color:var(--gold)}
 
+  /* barras de evolução do personagem */
+  .skbar{margin-top:9px}
+  .skbar .row{display:flex;justify-content:space-between;gap:10px;font-size:.76rem;color:var(--ink-soft);margin-bottom:3px}
+  .skbar .row b{color:var(--ink);font-family:"JetBrains Mono",monospace}
+  .skbar .track{height:9px;background:rgba(58,42,10,.14);border:1px solid #C9B27E;border-radius:6px;overflow:hidden}
+  .skbar .fill{height:100%;border-radius:6px;transition:width .4s}
+  .fill-lvl{background:linear-gradient(90deg,var(--gold-deep),var(--gold-bright))}
+  .fill-sword{background:linear-gradient(90deg,#7a2b1e,#c2533a)}
+  .fill-def{background:linear-gradient(90deg,#2c5a3a,#4c8a5a)}
+
   .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px}
   .seg{display:flex;gap:4px;background:rgba(58,42,10,.08);padding:4px;border-radius:8px}
   .seg button{padding:6px 12px;border-radius:6px;font-size:.78rem;font-family:"Cinzel",serif;color:var(--ink-soft)}
@@ -468,6 +478,27 @@ RENDER.overview = function(){
 };
 
 /* ---------- PERSONAGENS ---------- */
+/* barras de evolução (Tibia mostra "quanto falta"; aqui convertemos pra "quanto já fez") */
+function pctDone(remaining){
+  if(remaining===undefined||remaining===null||remaining==='') return null;
+  const r=Math.max(0,Math.min(100,Number(remaining)));
+  return Math.round(100-r);
+}
+function evoBar(label, value, remaining, cls){
+  const done=pctDone(remaining);
+  const right = done===null ? 'sem %' : `${done}% feito · faltam ${100-done}%`;
+  const w = done===null ? 0 : done;
+  const val = (value!==undefined && value!==null && value!=='') ? ` <b>${value}</b>` : '';
+  return `<div class="skbar"><div class="row"><span>${label}${val}</span><span>${right}</span></div>
+    <div class="track"><div class="fill ${cls}" style="width:${w}%"></div></div></div>`;
+}
+function charBars(c){
+  let out = evoBar('Level', c.level||0, c.levelPct, 'fill-lvl');
+  if(c.sword!==undefined && c.sword!=='') out += evoBar('Sword', c.sword, c.swordPct, 'fill-sword');
+  if(c.def!==undefined && c.def!=='') out += evoBar('Defesa', c.def, c.defPct, 'fill-def');
+  return `<div style="margin-top:10px">${out}</div>`;
+}
+
 RENDER.characters = function(){
   const chars = getChars();
   const e = editingChar || {};
@@ -488,6 +519,16 @@ RENDER.characters = function(){
           <input id="c-level" type="number" min="1" value="${e.level||1}" /></label>
         <label class="fld">Mundo
           <input id="c-world" value="${esc(e.world||'')}" placeholder="Ex.: Antica" /></label>
+        <label class="fld">% falta p/ level
+          <input id="c-levelpct" type="number" min="0" max="100" value="${e.levelPct??''}" placeholder="ex.: 30" /></label>
+        <label class="fld">Sword (skill)
+          <input id="c-sword" type="number" min="0" value="${e.sword??''}" placeholder="ex.: 95" /></label>
+        <label class="fld">% falta p/ sword
+          <input id="c-swordpct" type="number" min="0" max="100" value="${e.swordPct??''}" placeholder="ex.: 40" /></label>
+        <label class="fld">Defesa (skill)
+          <input id="c-def" type="number" min="0" value="${e.def??''}" placeholder="ex.: 92" /></label>
+        <label class="fld">% falta p/ defesa
+          <input id="c-defpct" type="number" min="0" max="100" value="${e.defPct??''}" placeholder="ex.: 55" /></label>
         <label class="fld" style="grid-column:1/-1">Notas
           <textarea id="c-notes" placeholder="Equipamentos, metas pessoais...">${esc(e.notes||'')}</textarea></label>
       </div>
@@ -503,6 +544,7 @@ RENDER.characters = function(){
           <div class="grow">
             <h3>${esc(c.name)} <span class="badge voc-${c.voc||'none'}">${VOC_TAG[c.voc||'none']}</span></h3>
             <div class="meta">Nível <b>${c.level||0}</b> · ${VOCS[c.voc||'none']}${c.world?` · <b>${esc(c.world)}</b>`:''}</div>
+            ${charBars(c)}
             ${c.notes?`<div class="notes">${esc(c.notes)}</div>`:''}
           </div>
           <div class="row-actions">
@@ -516,10 +558,15 @@ RENDER.characters = function(){
 function saveChar(){
   const name=document.getElementById('c-name').value.trim();
   if(!name){ document.getElementById('c-name').focus(); return; }
+  const numOrUndef=id=>{ const v=document.getElementById(id).value.trim(); return v===''?undefined:Math.max(0,parseInt(v)||0); };
+  const pctOrUndef=id=>{ const v=document.getElementById(id).value.trim(); return v===''?undefined:Math.max(0,Math.min(100,parseInt(v)||0)); };
   const data={ name,
     voc:document.getElementById('c-voc').value,
     level:Math.max(1,parseInt(document.getElementById('c-level').value)||1),
     world:document.getElementById('c-world').value.trim(),
+    levelPct:pctOrUndef('c-levelpct'),
+    sword:numOrUndef('c-sword'), swordPct:pctOrUndef('c-swordpct'),
+    def:numOrUndef('c-def'), defPct:pctOrUndef('c-defpct'),
     notes:document.getElementById('c-notes').value.trim() };
   const list=getChars();
   if(editingChar){ Object.assign(editingChar,data); }
