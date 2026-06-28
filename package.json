@@ -1,0 +1,15 @@
+{
+  "name": "tibia-tracker",
+  "version": "1.0.0",
+  "description": "Diário de Aventuras — gestão de personagens, gold e objetivos do Tibia.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
